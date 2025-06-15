@@ -28,4 +28,19 @@ def run_with_saved_weights(filename, render=True):
     print(f"Total reward: {total_reward}")
     env.close()
 
+def plot_training_progress(avg_list, best_list):
+    generations = list(range(1, len(avg_list) + 1))
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(generations, avg_list, label='Средняя награда', linewidth=2)
+    plt.plot(generations, best_list, label='Лучшая награда', linewidth=2)
+    plt.xlabel('Поколение')
+    plt.ylabel('Награда')
+    plt.title('Прогресс обучения')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("training_progress.png")
+    plt.show()
+
 

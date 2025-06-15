@@ -2,6 +2,10 @@ import pickle
 import numpy as np
 import random
 from network import ReccurentNetwork
+from utils import visualize_network
+
+avg_list = []
+best_list = []
 
 
 class HESP:
@@ -100,9 +104,14 @@ class HESP:
             avg = np.mean([n.fitness for n in self.L1])
             print(f"Gen {gen+1}: best={best:.2f}, avg={avg:.2f}")
             
-            
+            avg_list.append(avg)
+            best_list.append(best)
+
             if avg >= 200:
                 print("Solved!")
+                return avg_list, best_list
+                
+            if gen == generations-1:
                 return avg_list, best_list
                 
             

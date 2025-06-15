@@ -14,8 +14,9 @@ if __name__ == "__main__":
             L1_size=20,          # Количество входных нейронов
             L2_size=300,         # Количество выходных нейронов
         )
-        hesp.evolve(generations=919)
+        avg, best = hesp.evolve(generations=10000)
         hesp.save_best_network("best_network_weights.json")
         env.close()
+        plot_training_progress(avg, best)
     else:
         run_with_saved_weights("best_network_weights1.json")
