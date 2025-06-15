@@ -106,7 +106,8 @@ class HESP:
             
             avg_list.append(avg)
             best_list.append(best)
-
+            if gen % 10 == 0:  # Визуализация каждые 10 поколений
+                visualize_network(self.best_network, gen)
             if avg >= 200:
                 print("Solved!")
                 return avg_list, best_list
