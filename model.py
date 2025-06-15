@@ -1,119 +1,118 @@
 import numpy as np
 import random
+from network import ReccurentNetwork
 
-class Neuron:
-    def __init__(self, input_dim):
-        self.weights = np.random.uniform(-1.0, 1.0, size=input_dim)
-        self.bias = np.random.uniform(-1.0, 1.0)
-        self.fitness = -np.inf
-
-    def activate(self, x, use_tanh=True):
-        z = np.dot(x, self.weights) + self.bias
-        return np.tanh(z) if use_tanh else z
-
-    def mutate(self, mutation_rate=0.1, mutation_scale=0.2):
-        mask = np.random.rand(*self.weights.shape) < mutation_rate
-        self.weights += mask * np.random.randn(*self.weights.shape) * mutation_scale
-        if np.random.rand() < mutation_rate:
-            self.bias += np.random.randn() * mutation_scale
-
-    def clone(self):
-        clone = Neuron(len(self.weights))
-        clone.weights = np.copy(self.weights)
-        clone.bias = self.bias
-        return clone
-
-
-class ReccurentNetwork:
-    def __init__(self, input_dim, output_dim, hidden_units):
-        self.input_dim = input_dim
-        self.output_dim = output_dim
+class HESP:
+    def __init__(self, env, population_size=50, hidden_units=5, L1_size=10, L2_size=100):
+        self.env = env
+        self.input_dim = env.observation_space.shape[0]
+        self.output_dim = env.action_space.n 
         self.hidden_units = hidden_units
-        self.hidden_neurons = [RecurrentNeuron(input_dim) for _ in range(hidden_units)]
-        self.output_neurons = [Neuron(hidden_units) for _ in range(output_dim)]
-        self.fitness = -np.inf
+        self.population_size = population_size
+        self.L1_size = L1_size
+        self.L2_size = L2_size
+        self.L2 = [[] for _ in range(self.hidden_units)]  # список списков нейронов по позициям
+        self.best_network = None
+        self.best_fitness = -np.inf
+        self.max_neurons_per_position = 20
 
-    def reset_states(self):
-        for n in self.hidden_neurons:
-            n.reset_state()
+        # Инициализируем L1: создаем и оцениваем сети
+        self.L1 = []
+        for _ in range(L1_size):
+            net = ReccurentNetwork(self.input_dim, self.output_dim, hidden_units)
+            self.evaluate_network(net)
+            self.L1.append(net)
 
-    def predict(self, x):
-        hidden_output = np.array([n.activate(x) for n in self.hidden_neurons])
-        output = np.array([n.activate(hidden_output, use_tanh=False) for n in self.output_neurons])
-        return output
+        
 
-    def mutate(self, reuse_prob=0.1, L2_pool=None):
-        for i, neuron in enumerate(self.hidden_neurons):
-            if L2_pool and random.random() < reuse_prob:
-                neuron_candidates = L2_pool[i]
-                neuron_for_replacement = random.choice(neuron_candidates)
-                self.hidden_neurons[i] = neuron_for_replacement.clone()
+    def evaluate_network(self, network, episodes=5, render=False):
+        total_reward = 0
+        for _ in range(episodes):
+            state, _ = self.env.reset()
+            network.reset_states()  # <-- ВАЖНО
+            done = False
+            while not done:
+                if render:
+                    self.env.render()
+                action = np.argmax(network.predict(state))
+                state, reward, terminated, truncated, _ = self.env.step(action)
+                done = terminated or truncated
+                total_reward += reward
+
+        fitness = total_reward / episodes
+        network.fitness = fitness
+
+        if not self.L1:
+            self.L1.append(network)
+        elif fitness > min(n.fitness for n in self.L1):
+            worst = np.argmin([n.fitness for n in self.L1])
+            self.L1[worst] = network
+
+        if fitness > self.best_fitness:
+            self.best_fitness = fitness
+            self.best_network = network
+            self.update_L2(network)
+
+        return fitness
+
+
+    def update_L2(self, network):
+        for i, neuron in enumerate(network.hidden_neurons):
+            if len(self.L2[i]) < self.max_neurons_per_position:
+                self.L2[i].append(neuron.clone())
             else:
-                neuron.mutate()
-
-        for neuron in self.output_neurons:
-            neuron.mutate()
-
-    def crossover(self, other):
-        child = ReccurentNetwork(self.input_dim, self.output_dim, self.hidden_units)
-        for i in range(self.hidden_units):
-            parent = self.hidden_neurons[i] if random.random() < 0.5 else other.hidden_neurons[i]
-            child.hidden_neurons[i] = parent.clone()
-        for i in range(self.output_dim):
-            parent = self.output_neurons[i] if random.random() < 0.5 else other.output_neurons[i]
-            child.output_neurons[i] = parent.clone()
-        return child
+                worst_idx = np.argmin([n.fitness for n in self.L2[i]])
+                if neuron.fitness > self.L2[i][worst_idx].fitness:
+                    self.L2[i][worst_idx] = neuron.clone()
 
 
-    def save_weights(self, filename):
-        weights = {
-            'hidden_weights': [n.weights.tolist() for n in self.hidden_neurons],
-            'hidden_biases': [n.bias for n in self.hidden_neurons],
-            'output_weights': [n.weights.tolist() for n in self.output_neurons],
-            'output_biases': [n.bias for n in self.output_neurons]
-        }
-        import json
-        with open(filename, 'w') as f:
-            json.dump(weights, f)
+    def evaluate_population(self, population):
+        for net in population:
+            if net.fitness == -np.inf:
+                self.evaluate_network(net)
 
-    def load_weights(self, filename):
-        import json
-        with open(filename, 'r') as f:
-            w = json.load(f)
-        for i, n in enumerate(self.hidden_neurons):
-            n.weights = np.array(w['hidden_weights'][i])
-            n.bias = w['hidden_biases'][i]
-        for i, n in enumerate(self.output_neurons):
-            n.weights = np.array(w['output_weights'][i])
-            n.bias = w['output_biases'][i]
+    def recombine(self):
+        new_pop = []
+        sorted_L1 = sorted(self.L1, key=lambda x: x.fitness, reverse=True)
+        topk = sorted_L1[:max(2, len(sorted_L1)//3)]
+        
+        while len(new_pop) < self.population_size:
+            p1 = random.choice(topk)
+            p2 = random.choice(topk)
+            if p2 is p1:
+                continue
+            child = p1.crossover(p2)
+            
+            child.mutate(L2_pool=self.L2)  
+            
+            new_pop.append(child)
+        return new_pop
 
-class RecurrentNeuron:
-    def __init__(self, input_dim):
-        self.input_weights = np.random.uniform(-1, 1, input_dim)
-        self.recurrent_weight = np.random.uniform(-1, 1)
-        self.bias = np.random.uniform(-1, 1)
-        self.hidden_state = 0.0
-        self.fitness = -np.inf
+    def evolve(self, generations=100):
+        for gen in range(generations):
+            self.evaluate_population(self.L1)
+            
+            best = max(n.fitness for n in self.L1)
+            avg = np.mean([n.fitness for n in self.L1])
+            print(f"Gen {gen+1}: best={best:.2f}, avg={avg:.2f}")
+            
+            
+            if avg >= 200:
+                print("Solved!")
+                break
+                
 
-    def activate(self, x, use_tanh=True):
-        z = np.dot(x, self.input_weights) + self.recurrent_weight * self.hidden_state + self.bias
-        self.hidden_state = np.tanh(z) if use_tanh else z
-        return self.hidden_state
+            self.L1 = self.recombine()
+            self.evaluate_population(self.L1)
 
-    def reset_state(self):
-        self.hidden_state = 0.0
+        if self.best_network:
+            print("Testing best...")
+            self.evaluate_network(self.best_network, episodes=3, render=True)
 
-    def mutate(self, mutation_rate=0.1, mutation_scale=0.2):
-        mask = np.random.rand(*self.input_weights.shape) < mutation_rate
-        self.input_weights += mask * np.random.randn(*self.input_weights.shape) * mutation_scale
-        if np.random.rand() < mutation_rate:
-            self.recurrent_weight += np.random.randn() * mutation_scale
-        if np.random.rand() < mutation_rate:
-            self.bias += np.random.randn() * mutation_scale
+        self.save_training_log("training_log.json")
 
-    def clone(self):
-        clone = RecurrentNeuron(len(self.input_weights))
-        clone.input_weights = np.copy(self.input_weights)
-        clone.recurrent_weight = self.recurrent_weight
-        clone.bias = self.bias
-        return clone
+
+        if self.best_network:
+            print("Testing best...")
+            self.evaluate_network(self.best_network, episodes=3, render=True)
+    
