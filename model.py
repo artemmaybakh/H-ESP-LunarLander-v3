@@ -1,6 +1,8 @@
+import pickle
 import numpy as np
 import random
 from network import ReccurentNetwork
+
 
 class HESP:
     def __init__(self, env, population_size=50, hidden_units=5, L1_size=10, L2_size=100):
@@ -42,6 +44,7 @@ class HESP:
         fitness = total_reward / episodes
         network.fitness = fitness
 
+        # Обновление L1 и лучшей сети
         if not self.L1:
             self.L1.append(network)
         elif fitness > min(n.fitness for n in self.L1):
@@ -61,6 +64,7 @@ class HESP:
             if len(self.L2[i]) < self.max_neurons_per_position:
                 self.L2[i].append(neuron.clone())
             else:
+                # заменить худшего
                 worst_idx = np.argmin([n.fitness for n in self.L2[i]])
                 if neuron.fitness > self.L2[i][worst_idx].fitness:
                     self.L2[i][worst_idx] = neuron.clone()
@@ -99,8 +103,9 @@ class HESP:
             
             if avg >= 200:
                 print("Solved!")
-                break
+                return avg_list, best_list
                 
+            
 
             self.L1 = self.recombine()
             self.evaluate_population(self.L1)
@@ -116,3 +121,17 @@ class HESP:
             print("Testing best...")
             self.evaluate_network(self.best_network, episodes=3, render=True)
     
+    
+
+    def save_best_network(self, filename):
+        if self.best_network:
+            self.best_network.save_weights(filename)
+            print("Saved to", filename)
+        else:
+            print("Нет лучшей сети")
+
+
+    def save_training_log(self, filename):
+        import json
+        with open(filename, 'w') as f:
+            json.dump(self.training_log, f)
